@@ -1,0 +1,14 @@
+services:
+  hyperf-skeleton:
+    container_name: hyperf-skeleton
+    build:
+      context: .
+    working_dir: /app
+    volumes:
+      - ./:/app
+    ports:
+      - "9501:9501"
+    environment:
+      APP_ENV: dev
+      SCAN_CACHEABLE: "false"
+    command: ["php", "bin/hyperf.php", "start"]
