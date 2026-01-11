@@ -1,6 +1,5 @@
 <?php
 
-declare(strict_types=1);
 /**
  * This file is part of Hyperf.
  *
@@ -11,6 +10,7 @@ declare(strict_types=1);
  */
 
 use App\Controller\HealthController;
+use App\Controller\WithdrawController;
 use Hyperf\HttpServer\Router\Router;
 
 Router::addRoute(['GET', 'POST', 'HEAD'], '/', 'App\Controller\IndexController@index');
@@ -20,3 +20,6 @@ Router::get('/favicon.ico', function () {
 });
 
 Router::get('/ping', [HealthController::class, 'ping']);
+
+
+Router::post('/account/{accountId}/balance/withdraw', [WithdrawController::class, 'withdraw']);
