@@ -1,8 +1,9 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
-use Hyperf\Stringable\Str;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\Mailer;
 use Symfony\Component\Mailer\Transport;
@@ -11,15 +12,9 @@ use function Hyperf\Support\env;
 
 class WithdrawEmailNotifier
 {
-    private Mailer $mailer;
-
     public function __construct(
         private LoggerInterface $logger,
-    ) {
-        $dsn = env('MAILER_DSN', 'smtp://mailhog:1025');
-        $transport = Transport::fromDsn($dsn);
-        $this->mailer = new Mailer($transport);
-    }
+    ) {}
 
     public function sendWithdrawDoneEmail(
         string $requestId,
@@ -28,20 +23,33 @@ class WithdrawEmailNotifier
         string $amount,
         string $processedAt
     ): void {
+        $dsn = (string) env('MAILER_DSN', 'smtp://mailhog:1025');
         $fromAddress = (string) env('MAIL_FROM_ADDRESS', 'no-reply@contadigital.local');
         $fromName = (string) env('MAIL_FROM_NAME', 'Conta Digital');
 
         $subject = 'Saque efetuado';
         $html = $this->renderHtml($amount, $processedAt, $toEmail);
 
-        try {
-            $email = (new Email())
-                ->from(sprintf('%s <%s>', $fromName, $fromAddress))
-                ->to($toEmail)
-                ->subject($subject)
-                ->html($html);
+        $email = (new Email())
+            ->from(sprintf('%s <%s>', $fromName, $fromAddress))
+            ->to($toEmail)
+            ->subject($subject)
+            ->html($html);
 
-            $this->mailer->send($email);
+        $send = function () use ($dsn, $email): void {
+            $transport = Transport::fromDsn($dsn);
+            $mailer = new Mailer($transport);
+            $mailer->send($email);
+        };
+
+        try {
+            if (\Hyperf\Coroutine\Coroutine::inCoroutine()) {
+                $send();
+            } else {
+                \Swoole\Coroutine\run(function () use ($send) {
+                    $send();
+                });
+            }
 
             $this->logger->info('withdraw.email.sent', [
                 'request_id' => $requestId,
@@ -49,7 +57,6 @@ class WithdrawEmailNotifier
                 'to' => $toEmail,
             ]);
         } catch (\Throwable $e) {
-            // Não “falhar” o saque por erro de email
             $this->logger->error('withdraw.email.failed', [
                 'request_id' => $requestId,
                 'withdraw_id' => $withdrawId,

@@ -1,63 +1,93 @@
-# Introduction
+# Case Técnico — Conta Digital (Hyperf + MySQL + Mailhog)
 
-This is a skeleton application using the Hyperf framework. This application is meant to be used as a starting place for those looking to get their feet wet with Hyperf Framework.
+API para simular saques de uma conta (imediato e agendado), com persistência em MySQL, envio de e-mail via SMTP (Mailhog) e processamento de agendados via cron/command.
 
-# Requirements
+---
 
-Hyperf has some requirements for the system environment, it can only run under Linux and Mac environment, but due to the development of Docker virtualization technology, Docker for Windows can also be used as the running environment under Windows.
+## Sumário
+- [Stack](#stack)
+- [Requisitos atendidos do case](#requisitos-atendidos-do-case)
+- [Extras implementados (além do pedido)](#extras-implementados-além-do-pedido)
+- [Pré-requisitos](#pré-requisitos)
+- [Como rodar o projeto](#como-rodar-o-projeto)
+- [Banco de dados: migrations](#banco-de-dados-migrations)
+- [Popular dados de teste (seed)](#popular-dados-de-teste-seed)
+- [Endpoints](#endpoints)
+- [Exemplos de respostas JSON](#exemplos-de-respostas-json)
+- [Testes rápidos (cURL)](#testes-rápidos-curl)
+- [E-mail (Mailhog)](#e-mail-mailhog)
+- [Cron / Processamento de agendados](#cron--processamento-de-agendados)
+- [Decisões técnicas](#decisões-técnicas)
+- [Logs e observabilidade](#logs-e-observabilidade)
+- [Troubleshooting](#troubleshooting)
+- [Checklist de validação rápida](#checklist-de-validação-rápida)
 
-The various versions of Dockerfile have been prepared for you in the [hyperf/hyperf-docker](https://github.com/hyperf/hyperf-docker) project, or directly based on the already built [hyperf/hyperf](https://hub.docker.com/r/hyperf/hyperf) Image to run.
+---
 
-When you don't want to use Docker as the basis for your running environment, you need to make sure that your operating environment meets the following requirements:  
+## Stack
+- **PHP + Hyperf** (Swoole)
+- **MySQL 8**
+- **Mailhog** (SMTP + UI Web)
+- Docker + Docker Compose
 
- - PHP >= 8.1
- - Any of the following network engines
-   - Swoole PHP extension >= 5.0，with `swoole.use_shortname` set to `Off` in your `php.ini`
-   - Swow PHP extension >= 1.3
- - JSON PHP extension
- - Pcntl PHP extension
- - OpenSSL PHP extension （If you need to use the HTTPS）
- - PDO PHP extension （If you need to use the MySQL Client）
- - Redis PHP extension （If you need to use the Redis Client）
- - Protobuf PHP extension （If you need to use the gRPC Server or Client）
+Portas padrão (conforme `docker-compose.yml`):
+- API: `http://127.0.0.1:9501`
+- Mailhog UI: `http://127.0.0.1:8025`
+- MySQL externo: `127.0.0.1:3307` (internamente no docker: `mysql:3306`)
 
-# Installation using Composer
+---
 
-The easiest way to create a new Hyperf project is to use [Composer](https://getcomposer.org/). If you don't have it already installed, then please install as per [the documentation](https://getcomposer.org/download/).
+## Requisitos atendidos do case
+- Tabelas: `account`, `account_withdraw`, `account_withdraw_pix`
+- Endpoint:
+  - `POST /account/{accountId}/balance/withdraw`
+- Regras:
+  - `method=PIX`
+  - `pix.type=email` e `pix.key` deve ser e-mail válido
+  - `schedule=null` ⇒ saque imediato
+  - `schedule != null` ⇒ apenas agenda (não debita e não envia e-mail)
+  - agendamento não pode ser no passado
+  - saldo não pode ficar negativo
+- E-mail:
+  - envio após saque **efetivado**
+- Cron:
+  - processa saques agendados quando `scheduled_for <= now`
 
-To create your new Hyperf project:
+---
 
+## Extras implementados (além do pedido)
+Melhorias para qualidade (performance, observabilidade, escalabilidade horizontal e segurança):
+
+### Banco / Schema
+- **Campos adicionais**:
+  - `created_at`, `updated_at` (auditoria)
+  - `processed_at` (data/hora efetiva do processamento)
+  - `processing`, `processing_started_at` (claim/lock de job via DB para múltiplas instâncias)
+- **Índices**:
+  - por conta (`account_id`, `created_at`)
+  - para cron (`scheduled`, `done`, `processing`, `scheduled_for`)
+
+### Regra de saldo (concorrência)
+- **Débito atômico**:
+  - `UPDATE account SET balance = balance - ? WHERE id = ? AND balance >= ?`
+  - impede saldo negativo mesmo com múltiplas requisições simultâneas
+
+### API / Segurança / Observabilidade
+- **Validação forte** do payload (method, amount, pix, schedule)
+- **Respostas padronizadas** (sucesso/erro) e sem vazamento de stack trace
+- **Logs estruturados** com `request_id`, `withdraw_id`, `account_id`, status e `error_reason`
+- **E-mail compatível com HTTP + CLI** (coroutine no Swoole)
+
+---
+
+## Pré-requisitos
+- Docker
+- Docker Compose
+
+---
+
+## Como rodar o projeto
+
+### 1) Subir containers
 ```bash
-composer create-project hyperf/hyperf-skeleton path/to/install
-```
-
-If your development environment is based on Docker you can use the official Composer image to create a new Hyperf project:
-
-```bash
-docker run --rm -it -v $(pwd):/app composer create-project --ignore-platform-reqs hyperf/hyperf-skeleton path/to/install
-```
-
-# Getting started
-
-Once installed, you can run the server immediately using the command below.
-
-```bash
-cd path/to/install
-php bin/hyperf.php start
-```
-
-Or if in a Docker based environment you can use the `docker-compose.yml` provided by the template:
-
-```bash
-cd path/to/install
-docker-compose up
-```
-
-This will start the cli-server on port `9501`, and bind it to all network interfaces. You can then visit the site at `http://localhost:9501/` which will bring up Hyperf default home page.
-
-## Hints
-
-- A nice tip is to rename `hyperf-skeleton` of files like `composer.json` and `docker-compose.yml` to your actual project name.
-- Take a look at `config/routes.php` and `app/Controller/IndexController.php` to see an example of a HTTP entrypoint.
-
-**Remember:** you can always replace the contents of this README.md file to something that fits your project description.
+docker compose up -d --build

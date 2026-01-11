@@ -99,6 +99,8 @@ class WithdrawService
                     'status' => 'scheduled',
                     'withdraw_id' => $withdrawId,
                     'scheduled_for' => $scheduledFor->format('Y-m-d H:i:s'),
+                    'pix_email' => $pixKey,
+                    'amount' => $amountStr,
                 ];
             }
 
