@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Request\WithdrawRequest;
+use App\Service\WithdrawEmailNotifier;
 use App\Service\WithdrawService;
 use Hyperf\HttpServer\Contract\ResponseInterface as HttpResponse;
 use Hyperf\Stringable\Str;
@@ -12,6 +13,7 @@ class WithdrawController
 {
     public function __construct(
         private WithdrawService $service,
+        private WithdrawEmailNotifier $emailNotifier,
         private HttpResponse $response,
         private LoggerInterface $logger,
     ) {}
@@ -23,6 +25,16 @@ class WithdrawController
         try {
             $payload = $request->validated();
             $result = $this->service->createWithdraw($requestId, $accountId, $payload);
+
+            if (($result['status'] ?? null) === 'done') {
+                $this->emailNotifier->sendWithdrawDoneEmail(
+                    requestId: $requestId,
+                    withdrawId: $result['withdraw_id'],
+                    toEmail: $result['pix_email'],
+                    amount: (string) $result['amount'],
+                    processedAt: $result['processed_at']
+                );
+            }
 
             // Status codes:
             // - scheduled -> 202

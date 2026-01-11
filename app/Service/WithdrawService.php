@@ -152,6 +152,8 @@ class WithdrawService
                 'status' => 'done',
                 'withdraw_id' => $withdrawId,
                 'processed_at' => $nowStr,
+                'pix_email' => $pixKey,
+                'amount' => $amountStr,
             ];
         });
     }
